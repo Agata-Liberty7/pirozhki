@@ -1,7 +1,7 @@
 {
   "name": "Пирожковая",
   "short_name": "Пирожки",
-  "start_url": "/pirozhki/"
+  "start_url": "/pirozhki/",
   "display": "standalone",
   "background_color": "#FFF8F0",
   "theme_color": "#C4551A",

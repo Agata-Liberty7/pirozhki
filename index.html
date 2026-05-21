@@ -11,11 +11,11 @@
 <title>Заказ</title>
 <link rel="stylesheet" href="style.css">
 <style>
-.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bgc);border-top:1px solid var(--bdr2);display:flex;z-index:80}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--bgc);border-top:1px solid var(--bdr2);display:flex;z-index:80;padding-bottom:env(safe-area-inset-bottom)}
 .bottom-nav a{flex:1;display:flex;flex-direction:column;align-items:center;padding:9px 0 11px;text-decoration:none;color:var(--text3);font-size:10px;font-weight:700;gap:3px;transition:color .15s;-webkit-tap-highlight-color:transparent}
 .bottom-nav a .ni{font-size:20px}
 .bottom-nav a.active{color:var(--brand)}
-.page-wrap{padding-bottom:60px}
+.page-wrap{padding-bottom:calc(60px + env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>
@@ -32,6 +32,7 @@
       <button class="cart-icon-btn" onclick="goPage('cart');renderCart()">
         🛒 <span class="cart-cnt" id="cart-count">0</span>
       </button>
+      <button class="btn-ghost" onclick="doLogout()" title="Выйти" style="font-size:16px;padding:6px 9px">↩</button>
       <div style="position:relative">
         <button class="lang-btn" id="lang-toggle" onclick="toggleLangMenu()">🌐</button>
         <div id="lang-menu" style="display:none;position:absolute;right:0;top:36px;background:var(--bgc);border:1px solid var(--bdr);border-radius:var(--rsm);overflow:hidden;z-index:200;box-shadow:var(--sh)">
