@@ -276,7 +276,362 @@
 <div id="toast" class="toast"></div>
 <script src="i18n.js"></script>
 <script src="core.js"></script>
-<script>
+<script type="module">
+import { fbGetSettings, fbSaveSettings, fbGetCatalog, fbSaveProduct, fbDeleteProduct,
+         fbGetOrders, fbUpdateOrder, fbDeleteOrder, fbListenOrders,
+         fbGetClients, fbSaveClient, fbDeleteClient } from './firebase.js';
+
+let _catalog = [];
+let _orders  = [];
+let _clients = [];
+let _unsubOrders = null;
+
+async function adminBoot() {
+  applyTheme(); applyFont();
+  if (sessionStorage.getItem('adminAuth')==='1') {
+    document.getElementById('admin-login-screen').style.display='none';
+    document.getElementById('admin-main').style.display='block';
+    showLoading('Loading…');
+    try {
+      const s = await fbGetSettings();
+      if (s) { window._settings=Object.assign({},window._settings||{},s); saveSettingsCache(window._settings); applyTheme(); applyFont(); }
+      _catalog = await fbGetCatalog();
+      _clients = await fbGetClients();
+      hideLoading();
+      loadSettingsForm();
+      renderOrders();
+    } catch(e) { hideLoading(); showToast('Connection error'); }
+  }
+}
+adminBoot();
+
+window.doAdminLogin = async () => {
+  const p=document.getElementById('adm-pass').value;
+  showLoading('');
+  try {
+    const s = await fbGetSettings();
+    if (s) { window._settings=Object.assign({},window._settings||{},s); saveSettingsCache(window._settings); }
+  } catch(e){}
+  hideLoading();
+  if (loginAdmin(p)) {
+    sessionStorage.setItem('adminAuth','1');
+    document.getElementById('admin-login-screen').style.display='none';
+    document.getElementById('admin-main').style.display='block';
+    showLoading('Loading…');
+    try {
+      _catalog=await fbGetCatalog();
+      _clients=await fbGetClients();
+      hideLoading();
+      loadSettingsForm();
+      renderOrders();
+    } catch(e){ hideLoading(); showToast('Connection error'); }
+  } else {
+    document.getElementById('adm-err').style.display='block';
+  }
+};
+document.getElementById('adm-pass').addEventListener('keydown',e=>{if(e.key==='Enter')window.doAdminLogin();});
+window.adminLogout = () => { sessionStorage.removeItem('adminAuth'); if(_unsubOrders)_unsubOrders(); location.reload(); };
+
+window.switchTab = tab => {
+  document.querySelectorAll('.admin-tab').forEach((el,i)=>{
+    el.classList.toggle('active',['orders','catalog','clients','settings','stats'][i]===tab);
+  });
+  document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  if(tab==='orders')   renderOrders();
+  if(tab==='catalog')  renderCatalog();
+  if(tab==='clients')  renderClients();
+  if(tab==='stats')    renderStats();
+};
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+async function renderOrders() {
+  const filter=document.getElementById('order-filter').value;
+  showLoading('');
+  try { _orders=await fbGetOrders(); } catch(e){}
+  hideLoading();
+  let orders=_orders;
+  if(filter) orders=orders.filter(o=>o.status===filter);
+  const el=document.getElementById('orders-list');
+  if(!orders.length){el.innerHTML='<div class="empty-state"><div class="eicon">📋</div><p>No orders</p></div>';return;}
+  const STATUS_LABEL={new:'🟡 New',confirmed:'🟢 Confirmed',done:'✅ Done',cancelled:'❌ Cancelled'};
+  const STATUS_CLS={new:'badge-new',confirmed:'badge-confirmed',done:'badge-done',cancelled:'badge-cancelled'};
+  const PAY_LABEL={cash:'💵 Cash',bizum:'📱 Bizum',revolut:'💜 Revolut',stripe:'💳 Stripe',invoice:'📄 Invoice'};
+  el.innerHTML=orders.map(o=>{
+    const d=new Date(o.date).toLocaleString('en',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    const delD=o.delivery?.date?new Date(o.delivery.date).toLocaleDateString('en',{day:'numeric',month:'long'}):'';
+    return`<div class="order-card">
+      <div class="order-header" onclick="this.nextElementSibling.classList.toggle('open')">
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:700">#${String(o.id).slice(-6)} · ${d}</div>
+          <div style="font-size:15px;font-weight:700;margin-top:2px">${o.customer?.name||'—'}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${o.customer?.phone||''}${delD?' · 📅 '+delD:''}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span class="badge ${STATUS_CLS[o.status]||'badge-new'}">${STATUS_LABEL[o.status]||o.status}</span>
+          <span style="font-size:14px;font-weight:700;color:#2E6B3E">${formatPrice(o.total)}</span>
+        </div>
+      </div>
+      <div class="order-body">
+        <ul style="font-size:13px;color:var(--text2);margin-bottom:10px;list-style:none;padding:0">
+          ${(o.items||[]).map(i=>`<li>• ${i.name} × ${i.qty} = ${formatPrice(i.price*i.qty)}</li>`).join('')}
+        </ul>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:10px">
+          ${PAY_LABEL[o.payment]||o.payment}${o.delivery?.time?' · ⏰ '+o.delivery.time:''}
+          ${o.customer?.address?'<br>📍 '+o.customer.address:''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select style="width:auto;padding:6px 10px;font-size:13px;border-radius:20px" onchange="changeOrderStatus('${o.id}',this.value)">
+            ${['new','confirmed','done','cancelled'].map(s=>`<option value="${s}"${o.status===s?' selected':''}>${STATUS_LABEL[s]}</option>`).join('')}
+          </select>
+          <button class="btn btn-danger btn-sm" onclick="deleteOrder('${o.id}')">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+document.getElementById('order-filter').addEventListener('change', renderOrders);
+
+window.changeOrderStatus = async (id,status) => {
+  try { await fbUpdateOrder(id,{status}); showToast('Status updated'); renderOrders(); } catch(e){ showToast('Error'); }
+};
+window.deleteOrder = async id => {
+  if(!confirm('Delete order?')) return;
+  try { await fbDeleteOrder(id); renderOrders(); showToast('Deleted'); } catch(e){ showToast('Error'); }
+};
+
+// ── CATALOG ───────────────────────────────────────────────────────────────────
+function renderCatalog() {
+  const cats=[...new Set(_catalog.map(p=>p.category))];
+  document.getElementById('pm-cat-list').innerHTML=cats.map(c=>`<option value="${c}">`).join('');
+  const el=document.getElementById('catalog-list');
+  if(!_catalog.length){el.innerHTML='<div class="empty-state"><div class="eicon">🥟</div><p>Catalog is empty</p></div>';return;}
+  el.innerHTML=_catalog.map(p=>{
+    const thumb=p.photo?`<div class="product-row-thumb"><img src="${p.photo}" alt="${p.name}"></div>`:`<div class="product-row-thumb">🍴</div>`;
+    return`<div class="product-row${p.available===false?' unavail':''}">
+      ${thumb}
+      <div class="product-row-info">
+        <div class="product-row-name">${p.name}</div>
+        <div class="product-row-meta">${formatPrice(p.price)} / ${p.unit} · ${p.category}${p.minQty>1?' · min '+p.minQty:''}</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn-icon" onclick="openProductModal('${p.id}')">✏️</button>
+        <button class="btn-icon" onclick="deleteProduct('${p.id}')">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+let pmPhotoData=null;
+window.openProductModal = id => {
+  pmPhotoData=null;
+  document.getElementById('pm-title').textContent=id?'Edit product':'Add product';
+  document.getElementById('pm-id').value=id||'';
+  document.getElementById('pm-photo-preview').innerHTML='<div style="font-size:28px;margin-bottom:4px">📷</div><div style="font-size:13px;font-weight:700">Upload photo</div>';
+  if(id){
+    const p=_catalog.find(x=>x.id===id);if(!p)return;
+    document.getElementById('pm-name').value=p.name;
+    document.getElementById('pm-price').value=p.price;
+    document.getElementById('pm-unit').value=p.unit;
+    document.getElementById('pm-cat').value=p.category;
+    document.getElementById('pm-min').value=p.minQty||1;
+    document.getElementById('pm-avail').checked=p.available!==false;
+    document.getElementById('pm-desc').value=p.description||'';
+    document.getElementById('pm-ing').value=p.ingredients||'';
+    if(p.photo){pmPhotoData=p.photo;document.getElementById('pm-photo-preview').innerHTML=`<img src="${p.photo}" class="photo-preview">`;}
+  } else {
+    ['pm-name','pm-price','pm-cat','pm-desc','pm-ing'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('pm-unit').value='sht';document.getElementById('pm-min').value='1';document.getElementById('pm-avail').checked=true;
+  }
+  document.getElementById('product-modal').classList.add('open');
+};
+
+window.previewProductPhoto = event => {
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{pmPhotoData=e.target.result;document.getElementById('pm-photo-preview').innerHTML=`<img src="${pmPhotoData}" class="photo-preview">`;};
+  reader.readAsDataURL(file);
+};
+
+window.saveProduct = async () => {
+  const name=document.getElementById('pm-name').value.trim();
+  const price=parseFloat(document.getElementById('pm-price').value);
+  if(!name||isNaN(price)){showToast('Fill name and price');return;}
+  const data={name,price,unit:document.getElementById('pm-unit').value,category:document.getElementById('pm-cat').value||'Other',
+    minQty:parseFloat(document.getElementById('pm-min').value)||1,available:document.getElementById('pm-avail').checked,
+    photo:pmPhotoData||null,description:document.getElementById('pm-desc').value.trim(),ingredients:document.getElementById('pm-ing').value.trim()};
+  const editId=document.getElementById('pm-id').value;
+  try {
+    showLoading('Saving…');
+    const newId=await fbSaveProduct(editId?{id:editId,...data}:{...data});
+    _catalog=await fbGetCatalog();
+    hideLoading();closeModal('product-modal');renderCatalog();showToast('Saved ✓');
+  } catch(e){hideLoading();showToast('Error saving');}
+};
+
+window.deleteProduct = async id => {
+  if(!confirm('Delete?'))return;
+  try{showLoading('');await fbDeleteProduct(id);_catalog=await fbGetCatalog();hideLoading();renderCatalog();showToast('Deleted');}
+  catch(e){hideLoading();showToast('Error');}
+};
+
+window.importCSV = event => {
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const lines=e.target.result.split('
+').filter(l=>l.trim());
+    let added=0;
+    showLoading('Importing…');
+    for(const line of lines){
+      const parts=line.split(',').map(s=>s.trim().replace(/^["']|["']$/g,''));
+      if(parts.length<2)continue;
+      const[name,priceStr,unit='sht',category='Other',minQtyStr='1']=parts;
+      const price=parseFloat(priceStr);if(!name||isNaN(price))continue;
+      await fbSaveProduct({name,price,unit,category,minQty:parseFloat(minQtyStr)||1,available:true,photo:null,description:'',ingredients:''});
+      added++;
+    }
+    _catalog=await fbGetCatalog();
+    hideLoading();renderCatalog();showToast(`Added ${added} items`);
+    event.target.value='';
+  };
+  reader.readAsText(file,'UTF-8');
+};
+
+// ── CLIENTS ───────────────────────────────────────────────────────────────────
+function renderClients(){
+  const el=document.getElementById('clients-list');
+  if(!_clients.length){el.innerHTML='<div class="empty-state"><div class="eicon">👥</div><p>No clients</p></div>';return;}
+  el.innerHTML=_clients.map(c=>`
+    <div class="client-row">
+      <div class="client-info">
+        <div class="client-name">${c.name||c.login}</div>
+        <div class="client-meta">@${c.login} · ${c.group||'retail'}${c.discount>0?' · −'+c.discount+'%':''}${c.coeff&&c.coeff!==1?' · ×'+c.coeff:''}</div>
+      </div>
+      <div class="row-actions">
+        <button class="btn-icon" onclick="openClientModal('${c.id}')">✏️</button>
+        <button class="btn-icon" onclick="deleteClient('${c.id}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+window.openClientModal = id => {
+  document.getElementById('cm-title').textContent=id?'Edit client':'Add client';
+  document.getElementById('cm-id').value=id||'';
+  if(id){
+    const c=_clients.find(x=>x.id===id);if(!c)return;
+    document.getElementById('cm-login').value=c.login;document.getElementById('cm-pass').value=c.password;
+    document.getElementById('cm-name').value=c.name||'';document.getElementById('cm-disc').value=c.discount||0;
+    document.getElementById('cm-coeff').value=c.coeff||1;document.getElementById('cm-group').value=c.group||'retail';
+  } else {
+    ['cm-login','cm-pass','cm-name'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('cm-disc').value='0';document.getElementById('cm-coeff').value='1';document.getElementById('cm-group').value='retail';
+  }
+  document.getElementById('client-modal').classList.add('open');
+};
+
+window.saveClient = async () => {
+  const login=document.getElementById('cm-login').value.trim();
+  const pass=document.getElementById('cm-pass').value.trim();
+  if(!login||!pass){showToast('Login and password required');return;}
+  const data={login,password:pass,name:document.getElementById('cm-name').value.trim(),
+    discount:parseFloat(document.getElementById('cm-disc').value)||0,
+    coeff:parseFloat(document.getElementById('cm-coeff').value)||1,
+    group:document.getElementById('cm-group').value};
+  const editId=document.getElementById('cm-id').value;
+  try{
+    showLoading('');
+    await fbSaveClient(editId?{id:editId,...data}:{...data});
+    _clients=await fbGetClients();
+    hideLoading();closeModal('client-modal');renderClients();showToast('Saved ✓');
+  }catch(e){hideLoading();showToast('Error');}
+};
+
+window.deleteClient = async id => {
+  if(!confirm('Delete client?'))return;
+  try{showLoading('');await fbDeleteClient(id);_clients=await fbGetClients();hideLoading();renderClients();showToast('Deleted');}
+  catch(e){hideLoading();showToast('Error');}
+};
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────────
+function loadSettingsForm(){
+  const s=getSettings();
+  document.getElementById('s-name').value=s.shopName||'';
+  document.getElementById('s-tagline').value=s.shopTagline||'';
+  document.getElementById('s-currency').value=s.currency||'EUR';
+  document.getElementById('s-darkmode').value=s.darkMode||'system';
+  document.getElementById('s-bizum').value=s.bizumNumber||'';
+  document.getElementById('s-revolut').value=s.revolutHandle||'';
+  document.getElementById('s-invoice').value=s.invoiceDetails||'';
+  document.getElementById('s-stripe').value=s.stripeKey||'';
+  document.getElementById('s-adminpass').value='';
+  if(s.logo){document.getElementById('logo-preview-wrap').innerHTML=`<img src="${s.logo}" class="photo-preview" style="width:100px;height:100px"><br><div style="font-size:12px;color:var(--text3);margin-top:6px">Click to replace</div>`;}
+  applyTheme();applyFont();
+}
+
+window.selectFont = (el,font) => {
+  document.querySelectorAll('.font-opt').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+  const s=getSettings();s.fontFamily=font;saveSettingsCache(s);
+  document.documentElement.style.setProperty('--font-body',font+',sans-serif');
+};
+
+window.uploadLogo = event => {
+  const file=event.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const s=getSettings();s.logo=e.target.result;saveSettingsCache(s);
+    try{await fbSaveSettings(s);}catch(err){}
+    document.getElementById('logo-preview-wrap').innerHTML=`<img src="${s.logo}" class="photo-preview" style="width:100px;height:100px"><br><div style="font-size:12px;color:var(--text3);margin-top:6px">Click to replace</div>`;
+    showToast('Logo saved ✓');
+  };
+  reader.readAsDataURL(file);
+};
+
+window.saveSettingsForm = async () => {
+  const s=getSettings();
+  s.shopName=document.getElementById('s-name').value.trim()||'Panadería';
+  s.shopTagline=document.getElementById('s-tagline').value.trim();
+  s.currency=document.getElementById('s-currency').value;
+  s.darkMode=document.getElementById('s-darkmode').value;
+  s.bizumNumber=document.getElementById('s-bizum').value.trim();
+  s.revolutHandle=document.getElementById('s-revolut').value.trim();
+  s.invoiceDetails=document.getElementById('s-invoice').value.trim();
+  s.stripeKey=document.getElementById('s-stripe').value.trim();
+  const newPass=document.getElementById('s-adminpass').value.trim();
+  if(newPass)s.adminPassword=newPass;
+  saveSettingsCache(s);
+  try{showLoading('Saving…');await fbSaveSettings(s);hideLoading();showToast('Settings saved ✓');}
+  catch(e){hideLoading();showToast('Saved locally (offline)');}
+  applyTheme();applyFont();
+};
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+async function renderStats(){
+  showLoading('');
+  try{_orders=await fbGetOrders();}catch(e){}
+  hideLoading();
+  const total=_orders.reduce((s,o)=>s+(o.total||0),0);
+  const newCnt=_orders.filter(o=>o.status==='new').length;
+  const doneCnt=_orders.filter(o=>o.status==='done').length;
+  document.getElementById('stat-grid').innerHTML=`
+    <div class="stat-card"><div class="stat-num">${_orders.length}</div><div class="stat-label">Total orders</div></div>
+    <div class="stat-card"><div class="stat-num">${formatPrice(total)}</div><div class="stat-label">Revenue</div></div>
+    <div class="stat-card"><div class="stat-num" style="color:#856404">${newCnt}</div><div class="stat-label">New</div></div>
+    <div class="stat-card"><div class="stat-num">${doneCnt}</div><div class="stat-label">Done</div></div>`;
+  const freq={};
+  _orders.forEach(o=>(o.items||[]).forEach(i=>{freq[i.name]=(freq[i.name]||0)+i.qty;}));
+  const top=Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maxQ=top[0]?.[1]||1;
+  document.getElementById('top-items').innerHTML=top.length?top.map(([name,qty])=>`
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:14px;font-weight:700">${name}</span><span style="font-size:13px;color:var(--text3)">${qty}</span></div>
+      <div style="height:6px;background:var(--bdr2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.round(qty/maxQ*100)}%;background:#2E6B3E;border-radius:4px"></div></div>
+    </div>`).join(''):`<p style="color:var(--text3);font-size:14px">No data</p>`;
+}
+
+window.closeModal = id => document.getElementById(id).classList.remove('open');
+</script>
 const STATUS_CLS   = {new:'badge-new',confirmed:'badge-confirmed',done:'badge-done',cancelled:'badge-cancelled'};
 const STATUS_LABEL = {new:'🟡 New',confirmed:'🟢 Confirmed',done:'✅ Done',cancelled:'❌ Cancelled'};
 const PAY_LABEL    = {cash:'💵 Cash',bizum:'📱 Bizum',revolut:'💜 Revolut',stripe:'💳 Stripe',invoice:'📄 Invoice'};
@@ -638,10 +993,6 @@ function renderStats() {
     <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--bdr2);font-size:14px">
       <span>${PAY_LABEL[pay]||pay}</span><span style="font-weight:700">${cnt}</span>
     </div>`).join('') || `<p style="color:var(--text3);font-size:14px">No data</p>`;
-}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-</script>
 </body>
 </html>

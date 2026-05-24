@@ -14,7 +14,7 @@
 <div class="login-wrap">
   <div class="login-card">
     <div id="logo-wrap"></div>
-    <h1 class="login-title" id="lt"></h1>
+    <h1 class="login-title" id="lt">…</h1>
     <p class="login-tagline" id="ls"></p>
     <div class="form-group"><label id="lbl-user"></label><input type="text" id="inp-login" autocomplete="username" autocapitalize="none"></div>
     <div class="form-group"><label id="lbl-pass"></label><input type="password" id="inp-pass" autocomplete="current-password"></div>
@@ -31,44 +31,61 @@
     <button class="lang-btn" onclick="setLang('es')">ES</button>
   </div>
 </div>
+<div id="toast" class="toast"></div>
 <script src="i18n.js"></script>
 <script src="core.js"></script>
-<script>
+<script type="module">
+import { fbGetSettings, fbFindClient } from './firebase.js';
+
 applyTheme(); applyFont();
-const s = getSettings();
 
-// Logo - bigger now
-if (s.logo) {
-  const img = document.createElement('img');
-  img.src = s.logo; img.className = 'login-logo';
-  document.getElementById('logo-wrap').appendChild(img);
-} else {
-  const el = document.createElement('span');
-  el.className = 'login-logo-emoji'; el.textContent = '🥮';
-  document.getElementById('logo-wrap').appendChild(el);
+async function initLogin() {
+  showLoading('');
+  try {
+    const s = await fbGetSettings();
+    if (s) { window._settings = Object.assign({}, window._settings||{}, s); saveSettingsCache(window._settings); applyTheme(); applyFont(); }
+  } catch(e) {}
+  hideLoading();
+
+  const s = getSettings();
+  if (s.logo) {
+    const img=document.createElement('img');img.src=s.logo;img.className='login-logo';
+    document.getElementById('logo-wrap').appendChild(img);
+  } else {
+    const el=document.createElement('span');el.className='login-logo-emoji';el.textContent='🥮';
+    document.getElementById('logo-wrap').appendChild(el);
+  }
+  document.getElementById('lt').textContent  = s.shopName || t('appName');
+  document.getElementById('ls').textContent  = s.shopTagline || t('appTagline');
+  document.getElementById('lbl-user').textContent  = t('username');
+  document.getElementById('lbl-pass').textContent  = t('password');
+  document.getElementById('btn-login').textContent = t('loginBtn');
+  document.getElementById('btn-guest').textContent = t('guestBtn');
+  document.getElementById('admin-link-txt').textContent = t('adminPanel');
+  document.title = s.shopName || t('appName');
 }
 
-// Name + tagline as separate fields
-document.getElementById('lt').textContent = s.shopName || t('appName');
-document.getElementById('ls').textContent = s.shopTagline || t('appTagline');
-document.getElementById('lbl-user').textContent = t('username');
-document.getElementById('lbl-pass').textContent = t('password');
-document.getElementById('btn-login').textContent = t('loginBtn');
-document.getElementById('btn-guest').textContent = t('guestBtn');
-document.getElementById('admin-link-txt').textContent = t('adminPanel');
-document.title = s.shopName || t('appName');
+document.getElementById('inp-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 
-document.getElementById('inp-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+window.doLogin = async () => {
+  const login=document.getElementById('inp-login').value.trim();
+  const pass=document.getElementById('inp-pass').value;
+  const err=document.getElementById('err-msg');
+  try {
+    showLoading('');
+    const client = await fbFindClient(login, pass);
+    hideLoading();
+    if (client) { setCurrentUser(client); window.location.href='index.html'; }
+    else { err.textContent=t('loginError'); err.style.display='block'; }
+  } catch(e) {
+    hideLoading(); err.textContent=t('loginError'); err.style.display='block';
+  }
+};
 
-function doLogin() {
-  const login = document.getElementById('inp-login').value.trim();
-  const pass  = document.getElementById('inp-pass').value;
-  const err   = document.getElementById('err-msg');
-  if (loginUser(login, pass)) { window.location.href = 'index.html'; }
-  else { err.textContent = t('loginError'); err.style.display = 'block'; }
-}
-function doGuest() { loginUser('',''); window.location.href = 'index.html'; }
-if (getCurrentUser()) window.location.href = 'index.html';
+window.doGuest = () => { setCurrentUser({guest:true,name:'Guest',discount:0,coeff:1}); window.location.href='index.html'; };
+
+if (getCurrentUser()) window.location.href='index.html';
+initLogin();
 </script>
 </body>
 </html>

@@ -13,17 +13,13 @@
 </head>
 <body>
 
-<!-- CATALOG -->
 <div id="page-catalog" class="page active page-wrap">
   <header class="app-header" id="main-header">
     <div id="hdr-logo" class="logo-emoji">🥮</div>
-    <div>
-      <h1 id="hdr-name">Пирожковая</h1>
-      <div class="subtitle" id="hdr-tag"></div>
-    </div>
+    <div><h1 id="hdr-name">…</h1><div class="subtitle" id="hdr-tag"></div></div>
     <div class="header-right">
       <button class="cart-icon-btn" onclick="goPage('cart');renderCart()">🛒 <span class="cart-cnt" id="cart-count">0</span></button>
-      <button class="btn-ghost" onclick="doLogout()" title="Выйти" style="font-size:16px;padding:6px 10px">↩</button>
+      <button class="btn-ghost" onclick="doLogout()" style="font-size:16px;padding:6px 10px" title="Выйти">↩</button>
       <div style="position:relative">
         <button class="lang-btn" id="lang-toggle" onclick="toggleLangMenu()">🌐</button>
         <div id="lang-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--bgc);border:1px solid var(--bdr);border-radius:var(--rsm);overflow:hidden;z-index:200;box-shadow:var(--sh)">
@@ -44,7 +40,6 @@
   </div>
 </div>
 
-<!-- CART -->
 <div id="page-cart" class="page page-wrap">
   <header class="app-header">
     <button class="btn-ghost" onclick="goPage('catalog')" id="btn-back-cart"></button>
@@ -59,7 +54,6 @@
   <div style="padding:0 16px 20px" id="cart-cta"></div>
 </div>
 
-<!-- CHECKOUT -->
 <div id="page-checkout" class="page page-wrap">
   <header class="app-header">
     <button class="btn-ghost" onclick="goPage('cart')" id="btn-back-co"></button>
@@ -91,23 +85,17 @@
   </div>
 </div>
 
-<!-- SUCCESS -->
 <div id="page-success" class="page page-wrap">
   <div class="success-screen">
     <div class="check">🎉</div>
     <h2 id="success-title"></h2>
     <p id="success-msg"></p>
-    <div id="stripe-block" style="display:none;margin-top:20px">
-      <div class="info-box" id="stripe-note-txt" style="margin-bottom:14px"></div>
-      <button class="btn btn-primary" style="padding:13px 32px;font-size:15px" onclick="goStripe()" id="btn-stripe"></button>
-    </div>
     <div style="margin-top:28px">
       <button class="btn btn-outline" style="padding:13px 30px;font-size:16px" onclick="newOrder()" id="btn-neworder"></button>
     </div>
   </div>
 </div>
 
-<!-- MY ORDERS -->
 <div id="page-orders" class="page page-wrap">
   <header class="app-header">
     <h1 style="font-size:18px" id="hdr-myorders"></h1>
@@ -115,7 +103,7 @@
   <div id="my-orders-list" style="padding:14px 16px 80px"></div>
 </div>
 
-<!-- PRODUCT DETAIL SHEET -->
+<!-- Product detail sheet -->
 <div class="sheet-overlay" id="product-sheet" onclick="if(event.target===this)closeSheet()">
   <div class="sheet">
     <div id="sheet-img-wrap"></div>
@@ -124,7 +112,7 @@
       <div class="sheet-price" id="sheet-price"></div>
       <div class="sheet-desc" id="sheet-desc"></div>
       <div class="ingredients-block" id="sheet-ing-block" style="display:none">
-        <div class="ingredients-title" id="sheet-ing-title">Ingredientes / Состав</div>
+        <div class="ingredients-title">Ingredientes / Состав</div>
         <div class="ingredients-text" id="sheet-ing"></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
@@ -142,91 +130,129 @@
 </nav>
 
 <div id="toast" class="toast"></div>
+
 <script src="i18n.js"></script>
 <script src="core.js"></script>
-<script>
-if (!getCurrentUser()) window.location.href = 'login.html';
-applyTheme(); applyFont();
+<script type="module">
+import { fbGetSettings, fbGetCatalog, fbFindClient, fbAddOrder, fbGetOrders } from './firebase.js';
+
+if (!getCurrentUser()) { window.location.href = 'login.html'; }
 
 const EMOJIS = {Pan:'🍞',Piroski:'🥟',Pirogi:'🥮',Vypechka:'🍞',Sladosti:'🍯',Tartas:'🎂',Other:'🍴'};
-let currentCat = t('all');
+let currentCat = null;
 let selectedPay = 'cash';
-let lastOrder = null;
 let sheetProductId = null;
+let _catalog = [];
+let _orders = [];
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+async function boot() {
+  showLoading('Loading…');
+  applyTheme(); applyFont();
+
+  try {
+    // Load settings
+    const s = await fbGetSettings();
+    if (s) { window._settings = Object.assign({}, window._settings||{}, s); saveSettingsCache(window._settings); }
+    applyTheme(); applyFont();
+
+    // Load catalog
+    _catalog = await fbGetCatalog();
+    if (!_catalog.length) {
+      // Seed default catalog on first run
+      _catalog = [
+        { id:'1', name:'Barra brioche', price:4.5, unit:'sht', category:'Pan', available:true, minQty:1, photo:null, description:'Pan brioche artesano', ingredients:'Masa madre, harina de trigo fuerza, leche, mantequilla, azúcar, sal, yema de huevo. ¡Sin levadura!' },
+        { id:'2', name:'Piroski de carne', price:2.5, unit:'sht', category:'Piroski', available:true, minQty:5, photo:null, description:'', ingredients:'' },
+        { id:'3', name:'Piroski de col', price:2.0, unit:'sht', category:'Piroski', available:true, minQty:5, photo:null, description:'', ingredients:'' },
+      ];
+    }
+    window._catalog = _catalog;
+    currentCat = t('all');
+
+    // Load my orders
+    _orders = await fbGetOrders();
+
+    hideLoading();
+    initStrings();
+    renderCatalog();
+  } catch(e) {
+    console.error(e);
+    hideLoading();
+    showToast('Connection error — offline mode');
+    currentCat = t('all');
+    initStrings();
+    renderCatalog();
+  }
+}
 
 function initStrings() {
   const s = getSettings();
   document.getElementById('hdr-name').textContent = s.shopName || t('appName');
-  document.getElementById('hdr-tag').textContent = s.shopTagline || t('appTagline');
+  document.getElementById('hdr-tag').textContent  = s.shopTagline || t('appTagline');
   document.title = s.shopName || t('appName');
   if (s.logo) {
-    const img = document.createElement('img'); img.src = s.logo; img.className = 'logo-img';
+    const img = document.createElement('img'); img.src=s.logo; img.className='logo-img';
     document.getElementById('hdr-logo').replaceWith(img);
   }
-  ['btn-back-cart','btn-back-co'].forEach(id => document.getElementById(id).textContent = t('back'));
-  document.getElementById('hdr-cart').textContent = t('cart');
-  document.getElementById('hdr-checkout').textContent = t('orderTitle');
-  document.getElementById('lbl-yourdata').textContent = t('yourData');
-  document.getElementById('lbl-name').textContent = t('name')+' *';
-  document.getElementById('lbl-phone').textContent = t('phone')+' *';
-  document.getElementById('lbl-addr').textContent = t('address');
-  document.getElementById('ch-addr').placeholder = t('addressPlaceholder');
-  document.getElementById('lbl-delivery').textContent = t('deliveryDate');
-  document.getElementById('lbl-date').textContent = t('date')+' *';
-  document.getElementById('lbl-time').textContent = t('time');
-  document.getElementById('opt-any').textContent = t('timeAny');
+  ['btn-back-cart','btn-back-co'].forEach(id=>document.getElementById(id).textContent=t('back'));
+  document.getElementById('hdr-cart').textContent      = t('cart');
+  document.getElementById('hdr-checkout').textContent  = t('orderTitle');
+  document.getElementById('lbl-yourdata').textContent  = t('yourData');
+  document.getElementById('lbl-name').textContent      = t('name')+' *';
+  document.getElementById('lbl-phone').textContent     = t('phone')+' *';
+  document.getElementById('lbl-addr').textContent      = t('address');
+  document.getElementById('ch-addr').placeholder       = t('addressPlaceholder');
+  document.getElementById('lbl-delivery').textContent  = t('deliveryDate');
+  document.getElementById('lbl-date').textContent      = t('date')+' *';
+  document.getElementById('lbl-time').textContent      = t('time');
+  document.getElementById('opt-any').textContent       = t('timeAny');
   document.getElementById('lbl-payment-hdr').textContent = t('paymentMethod');
-  document.getElementById('lbl-topay').textContent = t('toPay');
-  document.getElementById('btn-confirm').textContent = t('confirmOrder');
-  document.getElementById('lbl-items').textContent = t('items');
-  document.getElementById('lbl-total').textContent = t('total');
-  document.getElementById('cart-empty-txt').textContent = t('cartEmpty');
+  document.getElementById('lbl-topay').textContent     = t('toPay');
+  document.getElementById('btn-confirm').textContent   = t('confirmOrder');
+  document.getElementById('lbl-items').textContent     = t('items');
+  document.getElementById('lbl-total').textContent     = t('total');
+  document.getElementById('cart-empty-txt').textContent= t('cartEmpty');
   document.getElementById('success-title').textContent = t('orderSuccess');
-  document.getElementById('hdr-myorders').textContent = t('myOrders');
-  document.getElementById('btn-neworder').textContent = t('newOrder');
+  document.getElementById('hdr-myorders').textContent  = t('myOrders');
+  document.getElementById('btn-neworder').textContent  = t('newOrder');
   document.getElementById('nav-catalog-lbl').textContent = t('catalog');
-  document.getElementById('nav-cart-lbl').textContent = t('cart');
-  document.getElementById('nav-orders-lbl').textContent = t('orders');
-  document.getElementById('ch-name').placeholder = t('namePlaceholder');
+  document.getElementById('nav-cart-lbl').textContent    = t('cart');
+  document.getElementById('nav-orders-lbl').textContent  = t('orders');
+  document.getElementById('ch-name').placeholder  = t('namePlaceholder');
   document.getElementById('ch-phone').placeholder = t('phonePlaceholder');
-
   const user = getCurrentUser();
   if (user && !user.guest) {
-    document.getElementById('ch-name').value = user.name || '';
+    document.getElementById('ch-name').value = user.name||'';
     let txt = '👤 '+user.name;
-    if (user.discount > 0) txt += ' · '+t('discount')+': −'+user.discount+'%';
-    else if (user.coeff && user.coeff !== 1) txt += ' · ×'+user.coeff;
-    const b = document.getElementById('user-banner');
-    b.textContent = txt; b.style.display = 'block';
+    if (user.discount>0) txt += ' · '+t('discount')+': −'+user.discount+'%';
+    else if (user.coeff&&user.coeff!==1) txt += ' · ×'+user.coeff;
+    const b=document.getElementById('user-banner'); b.textContent=txt; b.style.display='block';
   }
-
   buildPaymentOpts();
-  const tom = new Date(); tom.setDate(tom.getDate()+1);
-  document.getElementById('ch-date').value = tom.toISOString().split('T')[0];
-  document.getElementById('ch-date').min = new Date().toISOString().split('T')[0];
+  const tom=new Date(); tom.setDate(tom.getDate()+1);
+  document.getElementById('ch-date').value=tom.toISOString().split('T')[0];
+  document.getElementById('ch-date').min=new Date().toISOString().split('T')[0];
 }
 
 function renderCatalog() {
-  const catalog = getCatalog().filter(p => p.available !== false);
-  const cats = [t('all'), ...new Set(catalog.map(p => p.category))];
-  document.getElementById('cat-tabs').innerHTML = cats.map(c =>
-    `<button class="cat-tab ${c===currentCat?'active':''}" onclick="selectCat(this,'${c.replace(/'/g,"\\'")}')">
-      ${c===t('all') ? c : (EMOJIS[c]||'🍴')+' '+c}
+  const catalog = _catalog.filter(p=>p.available!==false);
+  const cats = [t('all'), ...new Set(catalog.map(p=>p.category))];
+  document.getElementById('cat-tabs').innerHTML = cats.map(c=>
+    `<button class="cat-tab ${c===currentCat?'active':''}" onclick="selectCat('${c.replace(/'/g,"\\'")}')">
+      ${c===t('all')?c:(EMOJIS[c]||'🍴')+' '+c}
     </button>`).join('');
   const items = currentCat===t('all') ? catalog : catalog.filter(p=>p.category===currentCat);
   const cart = getCart();
   const el = document.getElementById('product-list');
-  if (!items.length) { el.innerHTML='<div class="empty-state"><div class="eicon">😔</div></div>'; return; }
-
-  el.innerHTML = items.map(p => {
-    const inCart = cart.find(c=>c.id===p.id);
-    const qty = inCart ? inCart.qty : 0;
-    const cp = clientPrice(p.price);
-    const emoji = EMOJIS[p.category]||'🍴';
-    const discBadge = cp !== p.price ? `<span class="discount-badge">−${Math.round((1-cp/p.price)*100)}%</span>` : '';
-    const thumb = p.photo ? `<div class="product-thumb"><img src="${p.photo}" alt="${p.name}"></div>` : `<div class="product-thumb">${emoji}</div>`;
-    const minInfo = p.minQty > 1 ? `<div class="product-meta">${t('minQty')} ${p.minQty} ${t('unit_'+p.unit)||p.unit}</div>` : '';
-    return `<div class="product-card" onclick="openSheet(${p.id})">
+  if (!items.length){el.innerHTML='<div class="empty-state"><div class="eicon">😔</div></div>';return;}
+  el.innerHTML = items.map(p=>{
+    const inCart=cart.find(c=>c.id===p.id); const qty=inCart?inCart.qty:0;
+    const cp=clientPrice(p.price);
+    const emoji=EMOJIS[p.category]||'🍴';
+    const discBadge=cp!==p.price?`<span class="discount-badge">−${Math.round((1-cp/p.price)*100)}%</span>`:'';
+    const thumb=p.photo?`<div class="product-thumb"><img src="${p.photo}" alt="${p.name}"></div>`:`<div class="product-thumb">${emoji}</div>`;
+    const minInfo=p.minQty>1?`<div class="product-meta">${t('minQty')} ${p.minQty} ${t('unit_'+p.unit)||p.unit}</div>`:'';
+    return `<div class="product-card" onclick="openSheet('${p.id}')">
       ${thumb}
       <div class="product-info">
         <div class="product-name">${p.name}</div>
@@ -235,90 +261,76 @@ function renderCatalog() {
       </div>
       <div class="qty-control" onclick="event.stopPropagation()" id="qc-${p.id}">
         ${qty===0
-          ? `<button class="btn btn-primary btn-sm" onclick="addToCart(${p.id})">${t('addToCart')}</button>`
-          : `<button class="qty-btn" onclick="chQty(${p.id},-1)">−</button><span class="qty-num">${qty}</span><button class="qty-btn" onclick="chQty(${p.id},1)">+</button>`}
+          ?`<button class="btn btn-primary btn-sm" onclick="addToCart('${p.id}')">${t('addToCart')}</button>`
+          :`<button class="qty-btn" onclick="chQty('${p.id}',-1)">−</button><span class="qty-num">${qty}</span><button class="qty-btn" onclick="chQty('${p.id}',1)">+</button>`}
       </div>
     </div>`;
   }).join('');
   updateCartBadge(); updateSticky();
 }
 
-function openSheet(id) {
-  const p = getCatalog().find(x=>x.id===id); if(!p) return;
-  sheetProductId = id;
-  const cp = clientPrice(p.price);
-  const emoji = EMOJIS[p.category]||'🍴';
-  document.getElementById('sheet-img-wrap').innerHTML = p.photo
-    ? `<div class="sheet-img"><img src="${p.photo}" alt="${p.name}"></div>`
-    : `<div class="sheet-img">${emoji}</div>`;
-  document.getElementById('sheet-name').textContent = p.name;
-  document.getElementById('sheet-price').textContent = formatPrice(cp)+' / '+(t('unit_'+p.unit)||p.unit);
-  document.getElementById('sheet-desc').textContent = p.description || '';
-  const ing = p.ingredients || '';
-  const ingBlock = document.getElementById('sheet-ing-block');
-  ingBlock.style.display = ing ? 'block' : 'none';
-  document.getElementById('sheet-ing').textContent = ing;
-  document.getElementById('sheet-add-btn').textContent = t('addToCart');
+window.selectCat = c => { currentCat=c; renderCatalog(); };
+
+window.openSheet = id => {
+  const p=_catalog.find(x=>x.id===id); if(!p) return;
+  sheetProductId=id;
+  const cp=clientPrice(p.price);
+  const emoji=EMOJIS[p.category]||'🍴';
+  document.getElementById('sheet-img-wrap').innerHTML=p.photo
+    ?`<div class="sheet-img"><img src="${p.photo}" alt="${p.name}"></div>`
+    :`<div class="sheet-img">${emoji}</div>`;
+  document.getElementById('sheet-name').textContent=p.name;
+  document.getElementById('sheet-price').textContent=formatPrice(cp)+' / '+(t('unit_'+p.unit)||p.unit);
+  document.getElementById('sheet-desc').textContent=p.description||'';
+  const ing=p.ingredients||'';
+  document.getElementById('sheet-ing-block').style.display=ing?'block':'none';
+  document.getElementById('sheet-ing').textContent=ing;
+  document.getElementById('sheet-add-btn').textContent=t('addToCart');
   updateSheetQty();
   document.getElementById('product-sheet').classList.add('open');
-}
+};
 
 function updateSheetQty() {
-  const cart = getCart();
-  const inCart = cart.find(c=>c.id===sheetProductId);
-  const qty = inCart ? inCart.qty : 0;
-  const ctrl = document.getElementById('sheet-qty-control');
-  if (qty > 0) {
-    ctrl.innerHTML = `<button class="qty-btn" onclick="chQty(${sheetProductId},-1);updateSheetQty()">−</button><span class="qty-num">${qty}</span><button class="qty-btn" onclick="chQty(${sheetProductId},1);updateSheetQty()">+</button>`;
-  } else { ctrl.innerHTML = ''; }
+  const cart=getCart(); const inCart=cart.find(c=>c.id===sheetProductId);
+  const qty=inCart?inCart.qty:0;
+  const ctrl=document.getElementById('sheet-qty-control');
+  ctrl.innerHTML=qty>0?`<button class="qty-btn" onclick="chQty('${sheetProductId}',-1);updateSheetQty()">−</button><span class="qty-num">${qty}</span><button class="qty-btn" onclick="chQty('${sheetProductId}',1);updateSheetQty()">+</button>`:'';
 }
+window.updateSheetQty = updateSheetQty;
+window.closeSheet = () => document.getElementById('product-sheet').classList.remove('open');
+window.addFromSheet = () => { addToCart(sheetProductId); updateSheetQty(); };
 
-function addFromSheet() { addToCart(sheetProductId); updateSheetQty(); }
-function closeSheet() { document.getElementById('product-sheet').classList.remove('open'); }
-
-function selectCat(el, c) { currentCat=c; renderCatalog(); }
-
-function addToCart(id) {
-  const p = getCatalog().find(x=>x.id===id);
-  const minQ = p?(p.minQty||1):1;
-  let cart = getCart(); const ex = cart.find(c=>c.id===id);
+window.addToCart = id => {
+  const p=_catalog.find(x=>x.id===id); const minQ=p?(p.minQty||1):1;
+  let cart=getCart(); const ex=cart.find(c=>c.id===id);
   if(ex){ex.qty+=1;}else{cart.push({id,qty:minQ});}
   saveCart(cart); renderCatalog();
-}
-
-function chQty(id, delta) {
-  let cart = getCart();
-  const item = cart.find(c=>c.id===id);
-  const p = getCatalog().find(x=>x.id===id);
-  const minQ = p?(p.minQty||1):1;
-  if(item){item.qty+=delta; if(item.qty<minQ) cart=cart.filter(c=>c.id!==id);}
+};
+window.chQty = (id,delta) => {
+  let cart=getCart(); const item=cart.find(c=>c.id===id);
+  const p=_catalog.find(x=>x.id===id); const minQ=p?(p.minQty||1):1;
+  if(item){item.qty+=delta;if(item.qty<minQ)cart=cart.filter(c=>c.id!==id);}
   saveCart(cart); renderCatalog();
-}
+};
 
-function updateCartBadge() {
-  document.getElementById('cart-count').textContent = getCart().reduce((s,c)=>s+c.qty,0);
-}
-
-function updateSticky() {
-  const cart=getCart(), catalog=getCatalog();
-  const n=cart.reduce((s,c)=>s+c.qty,0);
-  const total=cart.reduce((s,c)=>{const p=catalog.find(x=>x.id===c.id);return s+(p?clientPrice(p.price)*c.qty:0);},0);
+function updateCartBadge(){document.getElementById('cart-count').textContent=getCart().reduce((s,c)=>s+c.qty,0);}
+function updateSticky(){
+  const cart=getCart(); const n=cart.reduce((s,c)=>s+c.qty,0);
+  const total=cart.reduce((s,c)=>{const p=_catalog.find(x=>x.id===c.id);return s+(p?clientPrice(p.price)*c.qty:0);},0);
   const el=document.getElementById('sticky-cart');
   if(n>0){el.classList.add('visible');document.getElementById('sticky-label').textContent=t('checkout')+' · '+formatPrice(total);}
   else el.classList.remove('visible');
 }
 
-function renderCart() {
-  const cart=getCart(), catalog=getCatalog();
-  const listEl=document.getElementById('cart-list');
+window.renderCart = () => {
+  const cart=getCart(); const listEl=document.getElementById('cart-list');
   const emptyEl=document.getElementById('cart-empty');
-  const sumEl=document.getElementById('cart-summary');
-  const ctaEl=document.getElementById('cart-cta');
+  const sumEl=document.getElementById('cart-summary'); const ctaEl=document.getElementById('cart-cta');
   if(!cart.length){emptyEl.style.display='block';listEl.style.display='none';sumEl.style.display='none';ctaEl.innerHTML='';return;}
   emptyEl.style.display='none';listEl.style.display='flex';sumEl.style.display='block';
   let total=0,count=0;
   listEl.innerHTML=cart.map(item=>{
-    const p=catalog.find(x=>x.id===item.id);if(!p)return'';
+    const p=_catalog.find(x=>x.id===item.id);if(!p)return'';
     const cp=clientPrice(p.price);const sub=cp*item.qty;total+=sub;count+=item.qty;
     return `<div class="product-card">
       <div class="product-info">
@@ -326,9 +338,9 @@ function renderCart() {
         <div style="font-size:14px;color:var(--text2);margin-top:4px">${item.qty} × ${formatPrice(cp)} = ${formatPrice(sub)}</div>
       </div>
       <div class="qty-control">
-        <button class="qty-btn" onclick="cartChQty(${p.id},-1)">−</button>
+        <button class="qty-btn" onclick="cartChQty('${p.id}',-1)">−</button>
         <span class="qty-num">${item.qty}</span>
-        <button class="qty-btn" onclick="cartChQty(${p.id},1)">+</button>
+        <button class="qty-btn" onclick="cartChQty('${p.id}',1)">+</button>
       </div>
     </div>`;
   }).join('');
@@ -336,14 +348,14 @@ function renderCart() {
   document.getElementById('sum-total').textContent=formatPrice(total);
   document.getElementById('ch-total').textContent=formatPrice(total);
   ctaEl.innerHTML=`<button class="btn btn-primary" style="width:100%;font-size:16px;padding:14px;border-radius:var(--r)" onclick="goPage('checkout')">${t('checkout')} →</button>`;
-}
+};
 
-function cartChQty(id,delta){
+window.cartChQty = (id,delta) => {
   let cart=getCart();const item=cart.find(c=>c.id===id);
-  const p=getCatalog().find(x=>x.id===id);const minQ=p?(p.minQty||1):1;
+  const p=_catalog.find(x=>x.id===id);const minQ=p?(p.minQty||1):1;
   if(item){item.qty+=delta;if(item.qty<minQ)cart=cart.filter(c=>c.id!==id);}
   saveCart(cart);renderCart();updateCartBadge();
-}
+};
 
 const PAY_NOTES={
   bizum:()=>{const s=getSettings();return s.bizumNumber?`📱 Bizum: <b>${s.bizumNumber}</b> — ${t('bizumNote')}`:t('bizumNote');},
@@ -351,7 +363,6 @@ const PAY_NOTES={
   invoice:()=>{const s=getSettings();return s.invoiceDetails?`📄 ${s.invoiceDetails}<br>${t('invoiceNote')}`:t('invoiceNote');},
   stripe:()=>t('stripeNote'),cash:()=>'',
 };
-
 function buildPaymentOpts(){
   const s=getSettings();
   const opts=[
@@ -367,53 +378,53 @@ function buildPaymentOpts(){
     </div>`).join('');
   updatePayNote();
 }
-
-function selectPay(val){
+window.selectPay = val => {
   selectedPay=val;
   document.querySelectorAll('.pay-opt').forEach(e=>e.classList.toggle('selected',e.dataset.val===val));
   updatePayNote();
-}
-
+};
 function updatePayNote(){
   const note=PAY_NOTES[selectedPay]?.()||'';
-  const el=document.getElementById('pay-note');
-  el.innerHTML=note;el.style.display=note?'block':'none';
+  const el=document.getElementById('pay-note');el.innerHTML=note;el.style.display=note?'block':'none';
 }
 
-function submitOrder(){
+window.submitOrder = async () => {
   const name=document.getElementById('ch-name').value.trim();
   const phone=document.getElementById('ch-phone').value.trim();
   const date=document.getElementById('ch-date').value;
   if(!name){showToast(t('fillName'));return;}
   if(!phone){showToast(t('fillPhone'));return;}
   if(!date){showToast(t('fillDate'));return;}
-  const cart=getCart(),catalog=getCatalog();
-  const total=cart.reduce((s,c)=>{const p=catalog.find(x=>x.id===c.id);return s+(p?clientPrice(p.price)*c.qty:0);},0);
+  const cart=getCart();
+  const total=cart.reduce((s,c)=>{const p=_catalog.find(x=>x.id===c.id);return s+(p?clientPrice(p.price)*c.qty:0);},0);
   const user=getCurrentUser();
-  const order={id:Date.now(),date:new Date().toISOString(),
-    customer:{name,phone,address:document.getElementById('ch-addr').value,userId:user?.id||null},
+  const order={
+    date:new Date().toISOString(),
+    customer:{name,phone,address:document.getElementById('ch-addr').value,userId:user?.id||null,userName:user?.name||null},
     delivery:{date,time:document.getElementById('ch-time').value},
-    payment:selectedPay,paymentStatus:selectedPay==='stripe'?'pending':'unpaid',
-    items:cart.map(c=>{const p=catalog.find(x=>x.id===c.id);return{id:c.id,name:p?.name,qty:c.qty,price:clientPrice(p?.price||0)};}),
-    total,status:'new',lang:detectLang()};
-  const orders=getOrders();orders.unshift(order);saveOrders(orders);
-  saveCart([]);lastOrder=order;
-  const dFmt=new Date(date).toLocaleDateString(detectLang(),{day:'numeric',month:'long'});
-  document.getElementById('success-msg').textContent=`${name} — ${formatPrice(total)}, ${dFmt}. ${t('orderSuccessMsg')}`;
-  if(selectedPay==='stripe'){
-    document.getElementById('stripe-block').style.display='block';
-    document.getElementById('stripe-note-txt').textContent=t('stripeNote');
-    document.getElementById('btn-stripe').textContent=t('toStripe');
-  }else{document.getElementById('stripe-block').style.display='none';}
-  goPage('success');
-}
+    payment:selectedPay,
+    items:cart.map(c=>{const p=_catalog.find(x=>x.id===c.id);return{id:c.id,name:p?.name,qty:c.qty,price:clientPrice(p?.price||0)};}),
+    total,status:'new',lang:detectLang(),
+  };
+  try {
+    showLoading('Sending order…');
+    await fbAddOrder(order);
+    saveCart([]);
+    hideLoading();
+    const dFmt=new Date(date).toLocaleDateString(detectLang(),{day:'numeric',month:'long'});
+    document.getElementById('success-msg').textContent=`${name} — ${formatPrice(total)}, ${dFmt}. ${t('orderSuccessMsg')}`;
+    goPage('success');
+  } catch(e) {
+    hideLoading(); showToast('Error saving order');
+  }
+};
 
-function goStripe(){showToast('Stripe: configure backend for order #'+lastOrder?.id);}
-function newOrder(){goPage('catalog');renderCatalog();}
-
-function renderMyOrders(){
-  const user=getCurrentUser();const all=getOrders();
-  const mine=user&&!user.guest?all.filter(o=>o.customer?.userId===user.id):all;
+window.renderMyOrders = async () => {
+  const user=getCurrentUser();
+  showLoading('Loading orders…');
+  try { _orders=await fbGetOrders(); } catch(e){}
+  hideLoading();
+  const mine=user&&!user.guest?_orders.filter(o=>o.customer?.userId===user.id):_orders;
   const el=document.getElementById('my-orders-list');
   const SC={new:'badge-new',confirmed:'badge-confirmed',done:'badge-done',cancelled:'badge-cancelled'};
   const SL={new:t('statusNew'),confirmed:t('statusConfirmed'),done:t('statusDone'),cancelled:t('statusCancelled')};
@@ -437,23 +448,24 @@ function renderMyOrders(){
       </div>
     </div>`;
   }).join('');
-}
+};
 
-function doLogout(){clearCurrentUser();window.location.href='login.html';}
-function toggleLangMenu(){const m=document.getElementById('lang-menu');m.style.display=m.style.display==='none'?'block':'none';}
+window.newOrder = () => { goPage('catalog'); renderCatalog(); };
+window.doLogout = () => { clearCurrentUser(); window.location.href='login.html'; };
+window.toggleLangMenu = () => { const m=document.getElementById('lang-menu');m.style.display=m.style.display==='none'?'block':'none'; };
 document.addEventListener('click',e=>{if(!e.target.closest('#lang-toggle')&&!e.target.closest('#lang-menu'))document.getElementById('lang-menu').style.display='none';});
 
-function goPage(name){
+window.goPage = name => {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
   document.querySelectorAll('.bottom-nav a').forEach(a=>a.classList.remove('active'));
   const map={catalog:'nav-catalog',cart:'nav-cart',orders:'nav-orders'};
   if(map[name])document.getElementById(map[name])?.classList.add('active');
   window.scrollTo(0,0);
-}
+};
 
-initStrings(); renderCatalog();
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+boot();
 </script>
 </body>
 </html>
