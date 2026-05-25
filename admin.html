@@ -33,7 +33,7 @@
     <h1 style="text-align:center;font-size:22px;margin-bottom:20px">Admin Panel</h1>
     <div class="form-group"><label>Password</label><input type="password" id="adm-pass" placeholder="admin123"></div>
     <div id="adm-err" style="color:#c0392b;font-size:13px;margin-bottom:10px;display:none">Wrong password</div>
-    <button class="btn btn-primary" style="width:100%;padding:13px;font-size:15px" onclick="doAdminLogin()">Enter</button>
+    <button class="btn btn-primary" style="width:100%;padding:13px;font-size:15px" onclick="window._doAdminLogin()">Enter</button>
     <div style="text-align:center;margin-top:16px"><a href="index.html" style="font-size:13px;color:var(--text3);text-decoration:none">← Back to shop</a></div>
   </div>
 </div>
@@ -45,7 +45,7 @@
     <div><h1 style="font-size:17px">Admin Panel</h1></div>
     <div class="header-right">
       <a href="index.html" class="btn-ghost" style="font-size:12px">Shop →</a>
-      <button class="btn-ghost" style="font-size:12px" onclick="adminLogout()">Exit</button>
+      <button class="btn-ghost" style="font-size:12px" onclick="window._adminLogout()">Exit</button>
     </div>
   </header>
 
@@ -305,7 +305,7 @@ async function adminBoot() {
 }
 adminBoot();
 
-window.doAdminLogin = async () => {
+window._doAdminLogin = window.doAdminLogin = async () => {
   const p=document.getElementById('adm-pass').value;
   showLoading('');
   try {
@@ -330,7 +330,7 @@ window.doAdminLogin = async () => {
   }
 };
 document.getElementById('adm-pass').addEventListener('keydown',e=>{if(e.key==='Enter')window.doAdminLogin();});
-window.adminLogout = () => { sessionStorage.removeItem('adminAuth'); if(_unsubOrders)_unsubOrders(); location.reload(); };
+window._adminLogout = window.adminLogout = () => { sessionStorage.removeItem('adminAuth'); if(_unsubOrders)_unsubOrders(); location.reload(); };
 
 window.switchTab = tab => {
   document.querySelectorAll('.admin-tab').forEach((el,i)=>{
@@ -479,8 +479,7 @@ window.importCSV = event => {
   const file=event.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=async e=>{
-    const lines=e.target.result.split('
-').filter(l=>l.trim());
+    const lines=e.target.result.split(/\r?\n/).filter(l=>l.trim());
     let added=0;
     showLoading('Importing…');
     for(const line of lines){
