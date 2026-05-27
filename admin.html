@@ -339,8 +339,8 @@ window.switchTab = tab => {
   document.querySelectorAll('.admin-section').forEach(s=>s.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   if(tab==='orders')   renderOrders();
-  if(tab==='catalog')  renderCatalog();
-  if(tab==='clients')  renderClients();
+  if(tab==='catalog')  { fbGetCatalog().then(d=>{_catalog=d;renderCatalog();}); }
+  if(tab==='clients')  { fbGetClients().then(d=>{_clients=d;renderClients();}); }
   if(tab==='stats')    renderStats();
 };
 

@@ -222,8 +222,9 @@ function initStrings() {
   document.getElementById('ch-phone').placeholder = t('phonePlaceholder');
   const user = getCurrentUser();
   if (user && !user.guest) {
-    document.getElementById('ch-name').value = user.name||'';
-    let txt = '👤 '+user.name;
+    const displayName = user.name || user.login || 'Cliente';
+    document.getElementById('ch-name').value = displayName;
+    let txt = '👤 '+displayName;
     if (user.discount>0) txt += ' · '+t('discount')+': −'+user.discount+'%';
     else if (user.coeff&&user.coeff!==1) txt += ' · ×'+user.coeff;
     const b=document.getElementById('user-banner'); b.textContent=txt; b.style.display='block';
